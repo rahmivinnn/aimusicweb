@@ -707,6 +707,7 @@ const RemixStudio: FC = () => {
               onVolumeChange={handleStemVolumeChange}
               onMuteToggle={handleStemMuteToggle}
               isLoading={isSeparatingStem}
+              audioContext={audioContextRef.current}
             />
           </motion.div>
 
