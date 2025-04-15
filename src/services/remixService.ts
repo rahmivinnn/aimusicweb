@@ -29,6 +29,29 @@ export const remixService = {
     }
   },
 
+  // Generate audio from a text prompt
+  generateFromPrompt: async (
+    prompt: string,
+    settings: { bpm?: number; genre: string; voiceSetup?: string }
+  ) => {
+    try {
+      // Create a dummy track to pass to generateRemix
+      const dummyTrack: Track = {
+        id: '1',
+        name: 'Generated Track',
+        artist: 'AI',
+        album: 'Generated',
+        duration: 180,
+        imageUrl: '',
+        audioUrl: ''
+      };
+      return await spotifyApiService.generateRemix(dummyTrack, prompt, settings);
+    } catch (error) {
+      console.error('Error generating from prompt:', error);
+      throw error;
+    }
+  },
+
   // Save a remix to the user's library
   saveRemixToLibrary: async (remix: RemixResult) => {
     try {

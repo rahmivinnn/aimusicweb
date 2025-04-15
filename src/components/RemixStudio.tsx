@@ -2,6 +2,7 @@ import { FC, useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { useToast } from "@/hooks/use-toast";
+import { useNavigate } from 'react-router-dom';
 import {
   Music,
   Wand2,
@@ -21,6 +22,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import AudioPlayer from './AudioPlayer';
 import AudioEffects from './AudioEffects';
 import RemixEffects from './RemixEffects';
+import { remixService } from '@/services/remixService';
 
 interface AudioVisualizerProps {
   audioContext: AudioContext;
@@ -44,6 +46,7 @@ const RemixStudio: FC = () => {
   const wavesurferRef = useRef<WaveSurfer | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const { toast } = useToast();
+  const navigate = useNavigate();
   const [audioSettings, setAudioSettings] = useState({
     reverb: 20,
     delay: 30,
@@ -146,8 +149,44 @@ const RemixStudio: FC = () => {
     console.log('Previewing effect:', type);
   };
 
+  const handleGenerateRemix = async () => {
+    if (!uploadedFile) {
+      toast({
+        title: "Missing input",
+        description: "Please upload an audio file",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setIsGenerating(true);
+
+    try {
+      // Call the remix service to generate a remix
+      await remixService.generateRemix(
+        uploadedFile,
+        "", // No prompt for now
+        {
+          bpm: 128,
+          genre: audioSettings.sourceType || "EDM"
+        }
+      );
+
+      // Redirect to the processing page
+      navigate('/processing');
+    } catch (error) {
+      console.error('Error generating remix:', error);
+      toast({
+        title: "Generation failed",
+        description: "There was a problem generating your remix. Please try again.",
+        variant: "destructive"
+      });
+      setIsGenerating(false);
+    }
+  };
+
   return (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       className="p-6 max-w-7xl mx-auto"
@@ -161,7 +200,7 @@ const RemixStudio: FC = () => {
         {/* Left Column */}
         <div className="space-y-6">
           {/* Input Section */}
-          <motion.div 
+          <motion.div
             className="bg-[#0C1015] rounded-lg p-6"
             onDrop={handleDrop}
             onDragOver={handleDragOver}
@@ -169,7 +208,7 @@ const RemixStudio: FC = () => {
             transition={{ type: "spring", stiffness: 300 }}
           >
             <h2 className="text-xl font-semibold text-white mb-4">Input Source</h2>
-            
+
             {/* File Upload */}
             <div className="mb-6">
               <label className="block text-sm font-medium text-gray-400 mb-2">
@@ -192,7 +231,7 @@ const RemixStudio: FC = () => {
                 />
               </div>
               {uploadedFile && (
-                <motion.p 
+                <motion.p
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
                   className="text-sm text-gray-400 mt-2"
@@ -204,7 +243,7 @@ const RemixStudio: FC = () => {
           </motion.div>
 
           {/* Audio Preview */}
-          <motion.div 
+          <motion.div
             className="bg-[#0C1015] rounded-lg p-6"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -249,7 +288,7 @@ const RemixStudio: FC = () => {
                 <TabsTrigger value="original">Original</TabsTrigger>
                 <TabsTrigger value="processed">Processed</TabsTrigger>
               </TabsList>
-              
+
               <TabsContent value="original">
                 <motion.div
                   initial={{ opacity: 0 }}
@@ -278,7 +317,7 @@ const RemixStudio: FC = () => {
                   )}
                 </motion.div>
               </TabsContent>
-              
+
               <TabsContent value="processed">
                 <motion.div
                   initial={{ opacity: 0 }}
@@ -345,9 +384,9 @@ const RemixStudio: FC = () => {
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.5 }}
       >
-        <Button 
+        <Button
           className="w-full py-6 bg-[#00FFD1] hover:bg-[#00FFD1]/90 text-black text-lg font-semibold"
-          onClick={() => setIsGenerating(true)}
+          onClick={handleGenerateRemix}
           disabled={isGenerating || !uploadedFile}
         >
           {isGenerating ? 'Generating Remix...' : 'Generate Remix'}
@@ -355,7 +394,7 @@ const RemixStudio: FC = () => {
       </motion.div>
 
       {/* Keyboard Shortcuts Help */}
-      <motion.div 
+      <motion.div
         className="mt-4 text-center text-sm text-gray-400"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
