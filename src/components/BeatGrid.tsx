@@ -1,7 +1,7 @@
 import { FC, useEffect, useRef, useState } from 'react';
 import { Slider } from '@/components/ui/slider';
 import { Button } from '@/components/ui/button';
-import { Clock, ZoomIn, ZoomOut, Plus, Metronome, Play, Pause } from 'lucide-react';
+import { Clock, ZoomIn, ZoomOut, Plus, Music, Play, Pause } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface BeatGridProps {
@@ -199,7 +199,7 @@ const BeatGrid: FC<BeatGridProps> = ({
               animate={isMetronomeActive ? { scale: [1, 1.2, 1], opacity: [1, 0.8, 1] } : {}}
               transition={{ repeat: Infinity, duration: 60 / (bpm || 120) }}
             >
-              <Metronome className={`h-4 w-4 mr-2 ${isMetronomeActive ? 'text-[#00FFD1]' : 'text-gray-400'}`} />
+              <Music className={`h-4 w-4 mr-2 ${isMetronomeActive ? 'text-[#00FFD1]' : 'text-gray-400'}`} />
             </motion.div>
             <span className="text-gray-400 text-sm">BPM</span>
           </div>
