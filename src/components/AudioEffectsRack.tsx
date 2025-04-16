@@ -4,14 +4,14 @@ import { Slider } from '@/components/ui/slider';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { 
-  Waveform, 
-  Repeat, 
-  Scissors, 
-  RotateCcw, 
-  Waves, 
-  Sparkles, 
-  Zap, 
+import {
+  Activity,
+  Repeat,
+  Scissors,
+  RotateCcw,
+  Waves,
+  Sparkles,
+  Zap,
   Volume2,
   Disc
 } from 'lucide-react';
@@ -63,17 +63,17 @@ const AudioEffectsRack: FC<AudioEffectsRackProps> = ({
   onPreviewEffect
 }) => {
   const [activeTab, setActiveTab] = useState('reverb');
-  
+
   // Handle effect toggle
   const handleEffectToggle = (effectType: keyof AudioEffects) => {
     const newEffects = { ...effects };
     newEffects[effectType].enabled = !newEffects[effectType].enabled;
     onEffectsChange(newEffects);
-    
+
     // Preview the effect
     onPreviewEffect(effectType);
   };
-  
+
   // Handle effect parameter change
   const handleEffectParamChange = (
     effectType: keyof AudioEffects,
@@ -84,27 +84,27 @@ const AudioEffectsRack: FC<AudioEffectsRackProps> = ({
     (newEffects[effectType] as any)[paramName] = value;
     onEffectsChange(newEffects);
   };
-  
+
   // Handle filter type change
   const handleFilterTypeChange = (type: 'lowpass' | 'highpass' | 'bandpass') => {
     const newEffects = { ...effects };
     newEffects.filter.type = type;
     onEffectsChange(newEffects);
   };
-  
+
   // Effect tabs configuration
   const effectTabs = [
     { id: 'reverb', label: 'Reverb', icon: <Waves className="h-4 w-4" /> },
     { id: 'delay', label: 'Delay', icon: <Repeat className="h-4 w-4" /> },
-    { id: 'filter', label: 'Filter', icon: <Waveform className="h-4 w-4" /> },
+    { id: 'filter', label: 'Filter', icon: <Activity className="h-4 w-4" /> },
     { id: 'distortion', label: 'Distortion', icon: <Zap className="h-4 w-4" /> },
     { id: 'compressor', label: 'Compressor', icon: <Sparkles className="h-4 w-4" /> }
   ];
-  
+
   return (
     <div className="bg-[#0C1015] rounded-lg p-6">
       <h3 className="text-xl font-semibold text-white mb-4">Effects Rack</h3>
-      
+
       <Tabs defaultValue="reverb" value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid grid-cols-5 mb-4">
           {effectTabs.map((tab) => (
@@ -115,7 +115,7 @@ const AudioEffectsRack: FC<AudioEffectsRackProps> = ({
             >
               {tab.icon}
               <span>{tab.label}</span>
-              <div 
+              <div
                 className={`w-2 h-2 rounded-full ml-1 ${
                   effects[tab.id as keyof AudioEffects].enabled ? 'bg-[#00FFD1]' : 'bg-gray-600'
                 }`}
@@ -123,7 +123,7 @@ const AudioEffectsRack: FC<AudioEffectsRackProps> = ({
             </TabsTrigger>
           ))}
         </TabsList>
-        
+
         {/* Reverb */}
         <TabsContent value="reverb" className="space-y-4">
           <div className="flex items-center justify-between">
@@ -136,7 +136,7 @@ const AudioEffectsRack: FC<AudioEffectsRackProps> = ({
               onCheckedChange={() => handleEffectToggle('reverb')}
             />
           </div>
-          
+
           <div className="space-y-4">
             <div className="space-y-2">
               <div className="flex items-center justify-between">
@@ -152,7 +152,7 @@ const AudioEffectsRack: FC<AudioEffectsRackProps> = ({
                 disabled={!effects.reverb.enabled}
               />
             </div>
-            
+
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label className="text-gray-400">Decay</Label>
@@ -168,7 +168,7 @@ const AudioEffectsRack: FC<AudioEffectsRackProps> = ({
               />
             </div>
           </div>
-          
+
           <div className="pt-2">
             <Button
               variant="outline"
@@ -182,7 +182,7 @@ const AudioEffectsRack: FC<AudioEffectsRackProps> = ({
             </Button>
           </div>
         </TabsContent>
-        
+
         {/* Delay */}
         <TabsContent value="delay" className="space-y-4">
           <div className="flex items-center justify-between">
@@ -195,7 +195,7 @@ const AudioEffectsRack: FC<AudioEffectsRackProps> = ({
               onCheckedChange={() => handleEffectToggle('delay')}
             />
           </div>
-          
+
           <div className="space-y-4">
             <div className="space-y-2">
               <div className="flex items-center justify-between">
@@ -211,7 +211,7 @@ const AudioEffectsRack: FC<AudioEffectsRackProps> = ({
                 disabled={!effects.delay.enabled}
               />
             </div>
-            
+
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label className="text-gray-400">Feedback</Label>
@@ -226,7 +226,7 @@ const AudioEffectsRack: FC<AudioEffectsRackProps> = ({
                 disabled={!effects.delay.enabled}
               />
             </div>
-            
+
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label className="text-gray-400">Mix</Label>
@@ -242,7 +242,7 @@ const AudioEffectsRack: FC<AudioEffectsRackProps> = ({
               />
             </div>
           </div>
-          
+
           <div className="pt-2">
             <Button
               variant="outline"
@@ -256,12 +256,12 @@ const AudioEffectsRack: FC<AudioEffectsRackProps> = ({
             </Button>
           </div>
         </TabsContent>
-        
+
         {/* Filter */}
         <TabsContent value="filter" className="space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Waveform className="h-5 w-5 text-[#00FFD1]" />
+              <Activity className="h-5 w-5 text-[#00FFD1]" />
               <h4 className="text-white font-medium">Filter</h4>
             </div>
             <Switch
@@ -269,7 +269,7 @@ const AudioEffectsRack: FC<AudioEffectsRackProps> = ({
               onCheckedChange={() => handleEffectToggle('filter')}
             />
           </div>
-          
+
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <Button
@@ -301,7 +301,7 @@ const AudioEffectsRack: FC<AudioEffectsRackProps> = ({
               </Button>
             </div>
           </div>
-          
+
           <div className="space-y-4">
             <div className="space-y-2">
               <div className="flex items-center justify-between">
@@ -319,7 +319,7 @@ const AudioEffectsRack: FC<AudioEffectsRackProps> = ({
                 disabled={!effects.filter.enabled}
               />
             </div>
-            
+
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label className="text-gray-400">Resonance</Label>
@@ -335,7 +335,7 @@ const AudioEffectsRack: FC<AudioEffectsRackProps> = ({
               />
             </div>
           </div>
-          
+
           <div className="pt-2">
             <Button
               variant="outline"
@@ -349,7 +349,7 @@ const AudioEffectsRack: FC<AudioEffectsRackProps> = ({
             </Button>
           </div>
         </TabsContent>
-        
+
         {/* Distortion */}
         <TabsContent value="distortion" className="space-y-4">
           <div className="flex items-center justify-between">
@@ -362,7 +362,7 @@ const AudioEffectsRack: FC<AudioEffectsRackProps> = ({
               onCheckedChange={() => handleEffectToggle('distortion')}
             />
           </div>
-          
+
           <div className="space-y-4">
             <div className="space-y-2">
               <div className="flex items-center justify-between">
@@ -379,7 +379,7 @@ const AudioEffectsRack: FC<AudioEffectsRackProps> = ({
               />
             </div>
           </div>
-          
+
           <div className="pt-2">
             <Button
               variant="outline"
@@ -393,7 +393,7 @@ const AudioEffectsRack: FC<AudioEffectsRackProps> = ({
             </Button>
           </div>
         </TabsContent>
-        
+
         {/* Compressor */}
         <TabsContent value="compressor" className="space-y-4">
           <div className="flex items-center justify-between">
@@ -406,7 +406,7 @@ const AudioEffectsRack: FC<AudioEffectsRackProps> = ({
               onCheckedChange={() => handleEffectToggle('compressor')}
             />
           </div>
-          
+
           <div className="space-y-4">
             <div className="space-y-2">
               <div className="flex items-center justify-between">
@@ -424,7 +424,7 @@ const AudioEffectsRack: FC<AudioEffectsRackProps> = ({
                 disabled={!effects.compressor.enabled}
               />
             </div>
-            
+
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label className="text-gray-400">Ratio</Label>
@@ -441,7 +441,7 @@ const AudioEffectsRack: FC<AudioEffectsRackProps> = ({
                 disabled={!effects.compressor.enabled}
               />
             </div>
-            
+
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label className="text-gray-400">Attack</Label>
@@ -458,7 +458,7 @@ const AudioEffectsRack: FC<AudioEffectsRackProps> = ({
                 disabled={!effects.compressor.enabled}
               />
             </div>
-            
+
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label className="text-gray-400">Release</Label>
@@ -476,7 +476,7 @@ const AudioEffectsRack: FC<AudioEffectsRackProps> = ({
               />
             </div>
           </div>
-          
+
           <div className="pt-2">
             <Button
               variant="outline"

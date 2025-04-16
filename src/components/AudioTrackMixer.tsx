@@ -2,7 +2,7 @@ import { FC, useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { AudioSample } from '@/services/audioSampleService';
-import { Play, Pause, X, Volume2, VolumeX, Music, Waveform, Trash2, Settings } from 'lucide-react';
+import { Play, Pause, X, Volume2, VolumeX, Music, WaveformIcon, Trash2, Settings } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 // Interface for a track in the mixer
@@ -39,41 +39,41 @@ const AudioTrackMixer: FC<AudioTrackMixerProps> = ({
 }) => {
   const [soloActive, setSoloActive] = useState(false);
   const trackNodesRef = useRef<Map<string, { source: AudioBufferSourceNode, gain: GainNode, pan: StereoPannerNode }>>(new Map());
-  
+
   // Check if any track is soloed
   useEffect(() => {
     setSoloActive(tracks.some(track => track.solo));
   }, [tracks]);
-  
+
   // Start/stop audio playback
   useEffect(() => {
     if (!audioContext) return;
-    
+
     if (isPlaying) {
       // Start playback for all tracks
       tracks.forEach(track => {
         // Skip if already playing
         if (trackNodesRef.current.has(track.id)) return;
-        
+
         // Create nodes
         const source = audioContext.createBufferSource();
         source.buffer = track.buffer;
         source.loop = true;
-        
+
         const gainNode = audioContext.createGain();
         gainNode.gain.value = calculateEffectiveVolume(track);
-        
+
         const panNode = audioContext.createStereoPanner();
         panNode.pan.value = track.pan;
-        
+
         // Connect nodes
         source.connect(panNode);
         panNode.connect(gainNode);
         gainNode.connect(audioContext.destination);
-        
+
         // Start playback
         source.start();
-        
+
         // Save references
         trackNodesRef.current.set(track.id, {
           source,
@@ -89,7 +89,7 @@ const AudioTrackMixer: FC<AudioTrackMixerProps> = ({
       });
       trackNodesRef.current.clear();
     }
-    
+
     // Cleanup on unmount
     return () => {
       trackNodesRef.current.forEach(({ source }) => {
@@ -103,7 +103,7 @@ const AudioTrackMixer: FC<AudioTrackMixerProps> = ({
       trackNodesRef.current.clear();
     };
   }, [isPlaying, audioContext]);
-  
+
   // Update volume and pan when tracks change
   useEffect(() => {
     tracks.forEach(track => {
@@ -114,24 +114,24 @@ const AudioTrackMixer: FC<AudioTrackMixerProps> = ({
       }
     });
   }, [tracks, soloActive]);
-  
+
   // Calculate effective volume considering mute and solo states
   const calculateEffectiveVolume = (track: MixerTrack): number => {
     if (track.muted) return 0;
     if (soloActive && !track.solo) return 0;
     return track.volume;
   };
-  
+
   // Handle volume change
   const handleVolumeChange = (trackId: string, volume: number) => {
     onUpdateTrack(trackId, { volume });
   };
-  
+
   // Handle pan change
   const handlePanChange = (trackId: string, pan: number) => {
     onUpdateTrack(trackId, { pan });
   };
-  
+
   // Toggle mute
   const handleToggleMute = (trackId: string) => {
     const track = tracks.find(t => t.id === trackId);
@@ -139,7 +139,7 @@ const AudioTrackMixer: FC<AudioTrackMixerProps> = ({
       onUpdateTrack(trackId, { muted: !track.muted });
     }
   };
-  
+
   // Toggle solo
   const handleToggleSolo = (trackId: string) => {
     const track = tracks.find(t => t.id === trackId);
@@ -147,21 +147,21 @@ const AudioTrackMixer: FC<AudioTrackMixerProps> = ({
       onUpdateTrack(trackId, { solo: !track.solo });
     }
   };
-  
+
   // Get icon for track type
   const getTrackIcon = (track: MixerTrack) => {
     switch (track.type) {
       case 'sample':
         return <Music className="h-4 w-4" />;
       case 'uploaded':
-        return <Waveform className="h-4 w-4" />;
+        return <WaveformIcon className="h-4 w-4" />;
       case 'stem':
-        return <Waveform className="h-4 w-4" />;
+        return <WaveformIcon className="h-4 w-4" />;
       default:
         return <Music className="h-4 w-4" />;
     }
   };
-  
+
   return (
     <div className="bg-[#0C1015] rounded-lg p-6">
       <div className="flex items-center justify-between mb-4">
@@ -176,7 +176,7 @@ const AudioTrackMixer: FC<AudioTrackMixerProps> = ({
           {isPlaying ? "Stop" : "Play All"}
         </Button>
       </div>
-      
+
       <div className="space-y-3 max-h-80 overflow-y-auto pr-2">
         <AnimatePresence>
           {tracks.length === 0 ? (
@@ -192,14 +192,14 @@ const AudioTrackMixer: FC<AudioTrackMixerProps> = ({
                 exit={{ opacity: 0, height: 0 }}
                 transition={{ duration: 0.2 }}
                 className={`bg-[#1A1F26] rounded-lg p-3 ${
-                  track.solo ? 'border border-yellow-500' : 
+                  track.solo ? 'border border-yellow-500' :
                   track.muted ? 'border border-gray-700 opacity-60' : 'border border-transparent'
                 }`}
                 style={{ borderLeftColor: track.color, borderLeftWidth: '3px' }}
               >
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center">
-                    <div 
+                    <div
                       className="w-8 h-8 rounded-full flex items-center justify-center mr-2"
                       style={{ backgroundColor: track.color }}
                     >
@@ -237,7 +237,7 @@ const AudioTrackMixer: FC<AudioTrackMixerProps> = ({
                     </Button>
                   </div>
                 </div>
-                
+
                 <div className="grid grid-cols-12 gap-2 items-center">
                   <div className="col-span-6">
                     <div className="flex items-center">
@@ -276,7 +276,7 @@ const AudioTrackMixer: FC<AudioTrackMixerProps> = ({
                     </Button>
                   </div>
                 </div>
-                
+
                 <div className="w-full h-6 bg-[#0C1015] rounded-md overflow-hidden mt-2 relative">
                   {/* Track waveform visualization */}
                   <div className="absolute inset-0 flex items-center justify-center">

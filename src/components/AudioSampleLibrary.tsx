@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { AudioSample, audioSampleService } from '@/services/audioSampleService';
-import { Play, Pause, Plus, Search, Music, Waveform } from 'lucide-react';
+import { Play, Pause, Plus, Search, Music, WaveformIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface AudioSampleLibraryProps {
@@ -19,10 +19,10 @@ const AudioSampleLibrary: FC<AudioSampleLibraryProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [playingSampleId, setPlayingSampleId] = useState<string | null>(null);
   const [filteredSamples, setFilteredSamples] = useState<AudioSample[]>([]);
-  
+
   const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const audioBuffersRef = useRef<Map<string, AudioBuffer>>(new Map());
-  
+
   // Initialize filtered samples
   useEffect(() => {
     if (searchQuery) {
@@ -31,11 +31,11 @@ const AudioSampleLibrary: FC<AudioSampleLibraryProps> = ({
       setFilteredSamples(audioSampleService.getSamplesByCategory(activeCategory));
     }
   }, [activeCategory, searchQuery]);
-  
+
   // Play a sample
   const playSample = (sample: AudioSample) => {
     if (!audioContext) return;
-    
+
     // Stop any currently playing sample
     if (audioSourceRef.current) {
       audioSourceRef.current.stop();
@@ -43,55 +43,55 @@ const AudioSampleLibrary: FC<AudioSampleLibraryProps> = ({
       audioSourceRef.current = null;
       setPlayingSampleId(null);
     }
-    
+
     // If we're clicking on the currently playing sample, just stop it
     if (playingSampleId === sample.id) {
       return;
     }
-    
+
     // Check if we already have the buffer
     let buffer = audioBuffersRef.current.get(sample.id);
-    
+
     if (!buffer) {
       // Create a dummy buffer for now
       // In a real app, this would fetch the actual audio file
       buffer = audioSampleService.createDummyBuffer(audioContext, sample);
       audioBuffersRef.current.set(sample.id, buffer);
     }
-    
+
     // Create and play the source
     const source = audioContext.createBufferSource();
     source.buffer = buffer;
     source.connect(audioContext.destination);
     source.loop = true;
     source.start();
-    
+
     // Save reference and update state
     audioSourceRef.current = source;
     setPlayingSampleId(sample.id);
-    
+
     // Add event listener for when playback ends
     source.onended = () => {
       setPlayingSampleId(null);
     };
   };
-  
+
   // Add a sample to the remix
   const handleAddSample = (sample: AudioSample) => {
     if (!audioContext) return;
-    
+
     // Get or create the buffer
     let buffer = audioBuffersRef.current.get(sample.id);
-    
+
     if (!buffer) {
       buffer = audioSampleService.createDummyBuffer(audioContext, sample);
       audioBuffersRef.current.set(sample.id, buffer);
     }
-    
+
     // Call the parent component's handler
     onAddSample(sample, buffer);
   };
-  
+
   // Clean up on unmount
   useEffect(() => {
     return () => {
@@ -101,16 +101,16 @@ const AudioSampleLibrary: FC<AudioSampleLibraryProps> = ({
       }
     };
   }, []);
-  
+
   // Categories for the tabs
   const categories: { value: AudioSample['category']; label: string; icon: JSX.Element }[] = [
-    { value: 'drums', label: 'Drums', icon: <Waveform className="h-4 w-4" /> },
-    { value: 'bass', label: 'Bass', icon: <Waveform className="h-4 w-4" /> },
+    { value: 'drums', label: 'Drums', icon: <WaveformIcon className="h-4 w-4" /> },
+    { value: 'bass', label: 'Bass', icon: <WaveformIcon className="h-4 w-4" /> },
     { value: 'melody', label: 'Melody', icon: <Music className="h-4 w-4" /> },
-    { value: 'fx', label: 'FX', icon: <Waveform className="h-4 w-4" /> },
-    { value: 'vocals', label: 'Vocals', icon: <Waveform className="h-4 w-4" /> }
+    { value: 'fx', label: 'FX', icon: <WaveformIcon className="h-4 w-4" /> },
+    { value: 'vocals', label: 'Vocals', icon: <WaveformIcon className="h-4 w-4" /> }
   ];
-  
+
   return (
     <div className="bg-[#0C1015] rounded-lg p-6">
       <div className="flex items-center justify-between mb-4">
@@ -125,7 +125,7 @@ const AudioSampleLibrary: FC<AudioSampleLibraryProps> = ({
           />
         </div>
       </div>
-      
+
       <Tabs defaultValue="drums" value={activeCategory} onValueChange={(value) => setActiveCategory(value as AudioSample['category'])}>
         <TabsList className="grid grid-cols-5 mb-4">
           {categories.map((category) => (
@@ -139,7 +139,7 @@ const AudioSampleLibrary: FC<AudioSampleLibraryProps> = ({
             </TabsTrigger>
           ))}
         </TabsList>
-        
+
         {categories.map((category) => (
           <TabsContent key={category.value} value={category.value} className="mt-0">
             <div className="grid grid-cols-2 gap-3 max-h-60 overflow-y-auto pr-2">
@@ -157,7 +157,7 @@ const AudioSampleLibrary: FC<AudioSampleLibraryProps> = ({
                   >
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center">
-                        <div 
+                        <div
                           className={`w-8 h-8 rounded-full flex items-center justify-center mr-2 ${
                             playingSampleId === sample.id ? 'bg-[#00FFD1] text-black' : 'bg-[#2A2F36] text-white'
                           }`}
@@ -189,7 +189,7 @@ const AudioSampleLibrary: FC<AudioSampleLibraryProps> = ({
                         <Plus className="h-4 w-4 text-[#00FFD1]" />
                       </Button>
                     </div>
-                    
+
                     <div className="w-full h-6 bg-[#0C1015] rounded-md overflow-hidden">
                       {/* Waveform visualization */}
                       <div className="h-full flex items-center justify-center">
@@ -226,7 +226,7 @@ const AudioSampleLibrary: FC<AudioSampleLibraryProps> = ({
                         )}
                       </div>
                     </div>
-                    
+
                     <div className="flex flex-wrap gap-1 mt-2">
                       {sample.tags.slice(0, 3).map((tag) => (
                         <span
