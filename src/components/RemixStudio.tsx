@@ -16,7 +16,9 @@ import {
   Share2,
   Volume2,
   Sliders,
-  Layers
+  Layers,
+  Disc,
+  Headphones
 } from 'lucide-react';
 import WaveSurfer from 'wavesurfer.js';
 import AudioControls from './AudioControls';
@@ -26,7 +28,59 @@ import AudioEffects from './AudioEffects';
 import RemixEffects from './RemixEffects';
 import StemMixer from './StemMixer';
 import BeatGrid from './BeatGrid';
+import AudioSampleLibrary from './AudioSampleLibrary';
+import AudioTrackMixer from './AudioTrackMixer';
+import AudioEffectsRack from './AudioEffectsRack';
 import { remixService } from '@/services/remixService';
+import { AudioSample, audioSampleService } from '@/services/audioSampleService';
+import { v4 as uuidv4 } from 'uuid';
+
+// Interface for mixer tracks
+interface MixerTrack {
+  id: string;
+  name: string;
+  type: 'sample' | 'uploaded' | 'stem';
+  buffer: AudioBuffer;
+  volume: number;
+  muted: boolean;
+  solo: boolean;
+  pan: number;
+  color: string;
+  // For sample tracks
+  sample?: AudioSample;
+}
+
+// Interface for audio effects
+interface AudioEffects {
+  reverb: {
+    enabled: boolean;
+    amount: number; // 0-100
+    decay: number; // 0-100
+  };
+  delay: {
+    enabled: boolean;
+    time: number; // 0-100 (maps to actual delay time)
+    feedback: number; // 0-100
+    mix: number; // 0-100
+  };
+  filter: {
+    enabled: boolean;
+    type: 'lowpass' | 'highpass' | 'bandpass';
+    frequency: number; // 0-100 (maps to actual frequency)
+    resonance: number; // 0-100
+  };
+  distortion: {
+    enabled: boolean;
+    amount: number; // 0-100
+  };
+  compressor: {
+    enabled: boolean;
+    threshold: number; // 0-100 (maps to dB)
+    ratio: number; // 0-100 (maps to actual ratio)
+    attack: number; // 0-100 (maps to ms)
+    release: number; // 0-100 (maps to ms)
+  };
+}
 
 interface AudioVisualizerProps {
   audioContext: AudioContext;
@@ -63,6 +117,27 @@ const RemixStudio: FC = () => {
   const audioContextRef = useRef<AudioContext | null>(null);
   const { toast } = useToast();
   const navigate = useNavigate();
+  // New state for enhanced remix functionality
+  const [mixerTracks, setMixerTracks] = useState<MixerTrack[]>([]);
+  const [activeTab, setActiveTab] = useState('mixer'); // 'mixer', 'samples', 'effects'
+  const [audioEffects, setAudioEffects] = useState<AudioEffects>({
+    reverb: { enabled: false, amount: 30, decay: 50 },
+    delay: { enabled: false, time: 40, feedback: 30, mix: 50 },
+    filter: { enabled: false, type: 'lowpass', frequency: 50, resonance: 20 },
+    distortion: { enabled: false, amount: 20 },
+    compressor: { enabled: false, threshold: 30, ratio: 40, attack: 20, release: 50 }
+  });
+
+  // Reference to audio effect nodes
+  const masterGainRef = useRef<GainNode | null>(null);
+  const effectsChainRef = useRef<{
+    reverb?: ConvolverNode,
+    delay?: DelayNode,
+    filter?: BiquadFilterNode,
+    distortion?: WaveShaperNode,
+    compressor?: DynamicsCompressorNode
+  }>({});
+
   const [audioSettings, setAudioSettings] = useState({
     reverb: 20,
     delay: 30,
@@ -455,15 +530,341 @@ const RemixStudio: FC = () => {
     });
   };
 
+  // Handle adding a sample to the mixer
+  const handleAddSample = (sample: AudioSample, buffer: AudioBuffer) => {
+    // Create a new mixer track for the sample
+    const newTrack: MixerTrack = {
+      id: uuidv4(),
+      name: sample.name,
+      type: 'sample',
+      buffer: buffer,
+      volume: 0.8,
+      muted: false,
+      solo: false,
+      pan: 0,
+      color: getColorForSampleType(sample.category),
+      sample: sample
+    };
+
+    setMixerTracks(prev => [...prev, newTrack]);
+
+    toast({
+      title: "Sample Added",
+      description: `${sample.name} has been added to the mixer.`,
+    });
+  };
+
+  // Get color for sample type
+  const getColorForSampleType = (category: string): string => {
+    switch (category) {
+      case 'drums': return '#FF5E5E';
+      case 'bass': return '#FFB800';
+      case 'melody': return '#9D5CFF';
+      case 'fx': return '#00FFD1';
+      case 'vocals': return '#00B2FF';
+      default: return '#FFFFFF';
+    }
+  };
+
+  // Handle removing a track from the mixer
+  const handleRemoveTrack = (trackId: string) => {
+    setMixerTracks(prev => prev.filter(track => track.id !== trackId));
+  };
+
+  // Handle updating a track in the mixer
+  const handleUpdateTrack = (trackId: string, updates: Partial<MixerTrack>) => {
+    setMixerTracks(prev =>
+      prev.map(track =>
+        track.id === trackId ? { ...track, ...updates } : track
+      )
+    );
+  };
+
+  // Handle audio effects change
+  const handleEffectsChange = (effects: AudioEffects) => {
+    setAudioEffects(effects);
+
+    // Apply effects to audio if playing
+    if (isPlaying && audioContextRef.current) {
+      applyAudioEffects(effects);
+    }
+  };
+
+  // Apply audio effects to the current audio
+  const applyAudioEffects = (effects: AudioEffects) => {
+    if (!audioContextRef.current) return;
+
+    const ctx = audioContextRef.current;
+
+    // Create master gain node if it doesn't exist
+    if (!masterGainRef.current) {
+      masterGainRef.current = ctx.createGain();
+      masterGainRef.current.connect(ctx.destination);
+    }
+
+    // Disconnect all existing effect nodes
+    Object.values(effectsChainRef.current).forEach(node => {
+      if (node) {
+        node.disconnect();
+      }
+    });
+
+    // Clear effects chain
+    effectsChainRef.current = {};
+
+    // Create and connect new effect nodes based on enabled effects
+    let lastNode: AudioNode = masterGainRef.current;
+
+    // Compressor
+    if (effects.compressor.enabled) {
+      const compressor = ctx.createDynamicsCompressor();
+      compressor.threshold.value = -60 + (effects.compressor.threshold / 100) * 60;
+      compressor.ratio.value = 1 + (effects.compressor.ratio / 100) * 19;
+      compressor.attack.value = 0.001 + (effects.compressor.attack / 100) * 0.999;
+      compressor.release.value = 0.01 + (effects.compressor.release / 100) * 0.99;
+
+      compressor.connect(lastNode);
+      lastNode = compressor;
+      effectsChainRef.current.compressor = compressor;
+    }
+
+    // Filter
+    if (effects.filter.enabled) {
+      const filter = ctx.createBiquadFilter();
+      filter.type = effects.filter.type;
+      filter.frequency.value = 20 + (effects.filter.frequency / 100) * 19980;
+      filter.Q.value = (effects.filter.resonance / 100) * 20;
+
+      filter.connect(lastNode);
+      lastNode = filter;
+      effectsChainRef.current.filter = filter;
+    }
+
+    // Distortion
+    if (effects.distortion.enabled) {
+      const distortion = ctx.createWaveShaper();
+      const amount = effects.distortion.amount / 100 * 50;
+      const curve = new Float32Array(ctx.sampleRate);
+      const deg = Math.PI / 180;
+
+      for (let i = 0; i < ctx.sampleRate; ++i) {
+        const x = i * 2 / ctx.sampleRate - 1;
+        curve[i] = (3 + amount) * x * 20 * deg / (Math.PI + amount * Math.abs(x));
+      }
+
+      distortion.curve = curve;
+      distortion.oversample = '4x';
+
+      distortion.connect(lastNode);
+      lastNode = distortion;
+      effectsChainRef.current.distortion = distortion;
+    }
+
+    // Delay
+    if (effects.delay.enabled) {
+      const delay = ctx.createDelay(5.0);
+      delay.delayTime.value = effects.delay.time / 100 * 2;
+
+      const feedback = ctx.createGain();
+      feedback.gain.value = effects.delay.feedback / 100;
+
+      const dryGain = ctx.createGain();
+      dryGain.gain.value = 1 - (effects.delay.mix / 100);
+
+      const wetGain = ctx.createGain();
+      wetGain.gain.value = effects.delay.mix / 100;
+
+      // Connect delay with feedback loop
+      delay.connect(feedback);
+      feedback.connect(delay);
+      delay.connect(wetGain);
+
+      // Connect dry path
+      dryGain.connect(lastNode);
+      wetGain.connect(lastNode);
+
+      lastNode = dryGain;
+      effectsChainRef.current.delay = delay;
+    }
+
+    // Reverb (simplified - in a real app, would use convolution with impulse response)
+    if (effects.reverb.enabled) {
+      // Simulate reverb with a simple delay network
+      const reverb = ctx.createConvolver();
+
+      // Create impulse response (simplified)
+      const sampleRate = ctx.sampleRate;
+      const length = sampleRate * (effects.reverb.decay / 100 * 5);
+      const impulse = ctx.createBuffer(2, length, sampleRate);
+
+      for (let channel = 0; channel < 2; channel++) {
+        const impulseData = impulse.getChannelData(channel);
+        for (let i = 0; i < length; i++) {
+          impulseData[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, effects.reverb.decay / 50);
+        }
+      }
+
+      reverb.buffer = impulse;
+
+      const dryGain = ctx.createGain();
+      dryGain.gain.value = 1 - (effects.reverb.amount / 100);
+
+      const wetGain = ctx.createGain();
+      wetGain.gain.value = effects.reverb.amount / 100;
+
+      reverb.connect(wetGain);
+      wetGain.connect(lastNode);
+      dryGain.connect(lastNode);
+
+      lastNode = dryGain;
+      effectsChainRef.current.reverb = reverb;
+    }
+  };
+
+  // Preview an audio effect
   const handlePreviewEffect = (type: string) => {
-    console.log('Previewing effect:', type);
+    if (!audioContextRef.current || !audioBuffer) {
+      toast({
+        title: "No Audio",
+        description: "Upload an audio file to preview effects.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // Create a short preview of the effect
+    const ctx = audioContextRef.current;
+    const source = ctx.createBufferSource();
+    source.buffer = audioBuffer;
+
+    // Apply the specific effect
+    const effectGain = ctx.createGain();
+    effectGain.connect(ctx.destination);
+
+    switch (type) {
+      case 'reverb':
+        if (audioEffects.reverb.enabled) {
+          // Apply reverb effect for preview
+          const reverb = ctx.createConvolver();
+          const sampleRate = ctx.sampleRate;
+          const length = sampleRate * (audioEffects.reverb.decay / 100 * 3);
+          const impulse = ctx.createBuffer(2, length, sampleRate);
+
+          for (let channel = 0; channel < 2; channel++) {
+            const impulseData = impulse.getChannelData(channel);
+            for (let i = 0; i < length; i++) {
+              impulseData[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, audioEffects.reverb.decay / 50);
+            }
+          }
+
+          reverb.buffer = impulse;
+
+          const dryGain = ctx.createGain();
+          dryGain.gain.value = 1 - (audioEffects.reverb.amount / 100);
+
+          const wetGain = ctx.createGain();
+          wetGain.gain.value = audioEffects.reverb.amount / 100;
+
+          source.connect(dryGain);
+          source.connect(reverb);
+          reverb.connect(wetGain);
+          dryGain.connect(effectGain);
+          wetGain.connect(effectGain);
+        }
+        break;
+
+      case 'delay':
+        if (audioEffects.delay.enabled) {
+          // Apply delay effect for preview
+          const delay = ctx.createDelay(5.0);
+          delay.delayTime.value = audioEffects.delay.time / 100 * 0.5;
+
+          const feedback = ctx.createGain();
+          feedback.gain.value = audioEffects.delay.feedback / 100;
+
+          const dryGain = ctx.createGain();
+          dryGain.gain.value = 1 - (audioEffects.delay.mix / 100);
+
+          const wetGain = ctx.createGain();
+          wetGain.gain.value = audioEffects.delay.mix / 100;
+
+          source.connect(dryGain);
+          source.connect(delay);
+          delay.connect(feedback);
+          feedback.connect(delay);
+          delay.connect(wetGain);
+          dryGain.connect(effectGain);
+          wetGain.connect(effectGain);
+        }
+        break;
+
+      case 'filter':
+        if (audioEffects.filter.enabled) {
+          // Apply filter effect for preview
+          const filter = ctx.createBiquadFilter();
+          filter.type = audioEffects.filter.type;
+          filter.frequency.value = 20 + (audioEffects.filter.frequency / 100) * 19980;
+          filter.Q.value = (audioEffects.filter.resonance / 100) * 20;
+
+          source.connect(filter);
+          filter.connect(effectGain);
+        }
+        break;
+
+      case 'distortion':
+        if (audioEffects.distortion.enabled) {
+          // Apply distortion effect for preview
+          const distortion = ctx.createWaveShaper();
+          const amount = audioEffects.distortion.amount / 100 * 50;
+          const curve = new Float32Array(ctx.sampleRate);
+          const deg = Math.PI / 180;
+
+          for (let i = 0; i < ctx.sampleRate; ++i) {
+            const x = i * 2 / ctx.sampleRate - 1;
+            curve[i] = (3 + amount) * x * 20 * deg / (Math.PI + amount * Math.abs(x));
+          }
+
+          distortion.curve = curve;
+          distortion.oversample = '4x';
+
+          source.connect(distortion);
+          distortion.connect(effectGain);
+        }
+        break;
+
+      case 'compressor':
+        if (audioEffects.compressor.enabled) {
+          // Apply compressor effect for preview
+          const compressor = ctx.createDynamicsCompressor();
+          compressor.threshold.value = -60 + (audioEffects.compressor.threshold / 100) * 60;
+          compressor.ratio.value = 1 + (audioEffects.compressor.ratio / 100) * 19;
+          compressor.attack.value = 0.001 + (audioEffects.compressor.attack / 100) * 0.999;
+          compressor.release.value = 0.01 + (audioEffects.compressor.release / 100) * 0.99;
+
+          source.connect(compressor);
+          compressor.connect(effectGain);
+        }
+        break;
+
+      default:
+        source.connect(effectGain);
+    }
+
+    // Play a short preview
+    source.start();
+    source.stop(ctx.currentTime + 2); // Play for 2 seconds
+
+    toast({
+      title: `Previewing ${type}`,
+      description: `Playing a short preview with the current ${type} settings.`,
+    });
   };
 
   const handleGenerateRemix = async () => {
-    if (!uploadedFile) {
+    if (!uploadedFile && mixerTracks.length === 0) {
       toast({
         title: "Missing input",
-        description: "Please upload an audio file",
+        description: "Please upload an audio file or add samples to the mixer",
         variant: "destructive"
       });
       return;
@@ -472,10 +873,11 @@ const RemixStudio: FC = () => {
     setIsGenerating(true);
 
     try {
-      // Process stems if available
+      // Build a detailed prompt based on all the elements in the remix
       let genrePrompt = "";
+
+      // Add stem information if available
       if (stems) {
-        // Create a description based on active stems and their settings
         const activeStems = Object.entries(stems)
           .filter(([_, stem]) => !stem.muted)
           .map(([type, stem]) => {
@@ -484,14 +886,61 @@ const RemixStudio: FC = () => {
           });
 
         if (activeStems.length > 0) {
-          genrePrompt = `Remix with ${activeStems.join(', ')}`;
+          genrePrompt += `Stems: ${activeStems.join(', ')}. `;
         }
       }
 
+      // Add mixer tracks information
+      if (mixerTracks.length > 0) {
+        const activeTracks = mixerTracks
+          .filter(track => !track.muted)
+          .map(track => {
+            const volume = Math.round(track.volume * 100);
+            const pan = track.pan === 0 ? 'center' : track.pan < 0 ? 'left' : 'right';
+            return `${track.name} (${track.type}) at ${volume}% panned ${pan}`;
+          });
+
+        if (activeTracks.length > 0) {
+          genrePrompt += `Tracks: ${activeTracks.join(', ')}. `;
+        }
+      }
+
+      // Add effects information
+      const activeEffects = [];
+      if (audioEffects.reverb.enabled) {
+        activeEffects.push(`reverb at ${audioEffects.reverb.amount}% with ${audioEffects.reverb.decay}% decay`);
+      }
+      if (audioEffects.delay.enabled) {
+        activeEffects.push(`delay at ${audioEffects.delay.mix}% with ${audioEffects.delay.feedback}% feedback`);
+      }
+      if (audioEffects.filter.enabled) {
+        activeEffects.push(`${audioEffects.filter.type} filter at ${audioEffects.filter.frequency}% with ${audioEffects.filter.resonance}% resonance`);
+      }
+      if (audioEffects.distortion.enabled) {
+        activeEffects.push(`distortion at ${audioEffects.distortion.amount}%`);
+      }
+      if (audioEffects.compressor.enabled) {
+        activeEffects.push(`compression with ${audioEffects.compressor.ratio}:1 ratio`);
+      }
+
+      if (activeEffects.length > 0) {
+        genrePrompt += `Effects: ${activeEffects.join(', ')}. `;
+      }
+
+      // Add BPM information
+      if (detectedBPM) {
+        genrePrompt += `BPM: ${detectedBPM}. `;
+      }
+
+      // Add genre information
+      genrePrompt += `Genre: ${audioSettings.sourceType || "EDM"}.`;
+
+      console.log('Generated prompt:', genrePrompt);
+
       // Call the remix service to generate a remix
       await remixService.generateRemix(
-        uploadedFile,
-        genrePrompt || "", // Use stem info as prompt if available
+        uploadedFile || new File([], 'remix.mp3'), // Fallback if using only samples
+        genrePrompt,
         {
           bpm: detectedBPM || 128,
           genre: audioSettings.sourceType || "EDM"
@@ -522,223 +971,365 @@ const RemixStudio: FC = () => {
         <p className="text-gray-400">Create unique genre-blending tracks using AI</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        {/* Left Column */}
-        <div className="space-y-6">
-          {/* Input Section */}
-          <motion.div
-            className="bg-[#0C1015] rounded-lg p-6"
-            onDrop={handleDrop}
-            onDragOver={handleDragOver}
-            whileHover={{ scale: 1.01 }}
-            transition={{ type: "spring", stiffness: 300 }}
-          >
-            <h2 className="text-xl font-semibold text-white mb-4">Input Source</h2>
+      {/* Main Tabs for Remix Studio */}
+      <Tabs defaultValue="mixer" value={activeTab} onValueChange={setActiveTab} className="mb-8">
+        <TabsList className="grid grid-cols-3 w-full mb-6">
+          <TabsTrigger value="mixer" className="text-lg py-3">
+            <Sliders className="mr-2 h-5 w-5" />
+            Mixer
+          </TabsTrigger>
+          <TabsTrigger value="samples" className="text-lg py-3">
+            <Music className="mr-2 h-5 w-5" />
+            Samples
+          </TabsTrigger>
+          <TabsTrigger value="effects" className="text-lg py-3">
+            <Wand2 className="mr-2 h-5 w-5" />
+            Effects
+          </TabsTrigger>
+        </TabsList>
 
-            {/* File Upload */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-400 mb-2">
-                Upload Audio File or Drag & Drop
-              </label>
-              <div className="flex items-center gap-4">
-                <Button
-                  onClick={() => document.getElementById('audio-upload')?.click()}
-                  className="w-full bg-[#1A1F26] hover:bg-[#2A2F36]"
-                >
-                  <Upload className="mr-2 h-4 w-4" />
-                  Choose File
-                </Button>
-                <input
-                  id="audio-upload"
-                  type="file"
-                  accept="audio/*"
-                  className="hidden"
-                  onChange={handleFileUpload}
-                />
-              </div>
-              {uploadedFile && (
-                <motion.p
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="text-sm text-gray-400 mt-2"
-                >
-                  {uploadedFile.name}
-                  {detectedBPM && (
-                    <span className="ml-2 text-[#00FFD1]">{detectedBPM} BPM</span>
+        {/* Mixer Tab */}
+        <TabsContent value="mixer" className="mt-0">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Left Column */}
+            <div className="space-y-6">
+              {/* Input Section */}
+              <motion.div
+                className="bg-[#0C1015] rounded-lg p-6"
+                onDrop={handleDrop}
+                onDragOver={handleDragOver}
+                whileHover={{ scale: 1.01 }}
+                transition={{ type: "spring", stiffness: 300 }}
+              >
+                <h2 className="text-xl font-semibold text-white mb-4">Input Source</h2>
+
+                {/* File Upload */}
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-400 mb-2">
+                    Upload Audio File or Drag & Drop
+                  </label>
+                  <div className="flex items-center gap-4">
+                    <Button
+                      onClick={() => document.getElementById('audio-upload')?.click()}
+                      className="w-full bg-[#1A1F26] hover:bg-[#2A2F36]"
+                    >
+                      <Upload className="mr-2 h-4 w-4" />
+                      Choose File
+                    </Button>
+                    <input
+                      id="audio-upload"
+                      type="file"
+                      accept="audio/*"
+                      className="hidden"
+                      onChange={handleFileUpload}
+                    />
+                  </div>
+                  {uploadedFile && (
+                    <motion.p
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="text-sm text-gray-400 mt-2"
+                    >
+                      {uploadedFile.name}
+                      {detectedBPM && (
+                        <span className="ml-2 text-[#00FFD1]">{detectedBPM} BPM</span>
+                      )}
+                    </motion.p>
                   )}
-                </motion.p>
-              )}
-            </div>
-          </motion.div>
-
-          {/* Audio Preview */}
-          <motion.div
-            className="bg-[#0C1015] rounded-lg p-6"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-          >
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold text-white">Audio Preview</h2>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={handlePlayPause}
-                  className="w-8 h-8"
-                >
-                  {isPlaying ? <Pause size={16} /> : <Play size={16} />}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={handleStop}
-                  className="w-8 h-8"
-                >
-                  <Square size={16} />
-                </Button>
-                <div className="flex items-center gap-2">
-                  <Volume2 size={16} className="text-gray-400" />
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.1"
-                    value={volume}
-                    onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
-                    className="w-20"
-                  />
                 </div>
-              </div>
-            </div>
+              </motion.div>
 
-            <Tabs defaultValue="original" className="space-y-4">
-              <TabsList className="grid grid-cols-2 w-full">
-                <TabsTrigger value="original">Original</TabsTrigger>
-                <TabsTrigger value="processed">Processed</TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="original">
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ duration: 0.3 }}
-                >
-                  {originalAudioUrl ? (
-                    <div>
-                      <div ref={waveformRef} className="mb-4" />
-                      <AudioPlayer
-                        audioUrl={originalAudioUrl}
-                        title={uploadedFile?.name || "Original Track"}
-                        isPlaying={isPlaying}
-                        onPlayPause={handlePlayPause}
-                        currentTime={currentTime}
-                        onTimeUpdate={setCurrentTime}
-                        duration={duration}
-                        onDurationChange={setDuration}
-                        showControls={true}
+              {/* Audio Preview */}
+              <motion.div
+                className="bg-[#0C1015] rounded-lg p-6"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2 }}
+              >
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-xl font-semibold text-white">Audio Preview</h2>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={handlePlayPause}
+                      className="w-8 h-8"
+                    >
+                      {isPlaying ? <Pause size={16} /> : <Play size={16} />}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={handleStop}
+                      className="w-8 h-8"
+                    >
+                      <Square size={16} />
+                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Volume2 size={16} className="text-gray-400" />
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.1"
+                        value={volume}
+                        onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
+                        className="w-20"
                       />
                     </div>
-                  ) : (
-                    <div className="text-gray-400 text-center py-8">
-                      No audio file uploaded
-                    </div>
-                  )}
-                </motion.div>
-              </TabsContent>
+                  </div>
+                </div>
 
-              <TabsContent value="processed">
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ duration: 0.3 }}
-                >
-                  {processedAudioUrl ? (
-                    <AudioPlayer
-                      audioUrl={processedAudioUrl}
-                      title="Processed Track"
-                      isPlaying={isPlaying}
-                      onPlayPause={handlePlayPause}
-                      currentTime={currentTime}
-                      onTimeUpdate={setCurrentTime}
-                      duration={duration}
-                      onDurationChange={setDuration}
-                      showControls={true}
-                    />
-                  ) : (
-                    <div className="text-gray-400 text-center py-8">
-                      No processed audio yet
-                    </div>
-                  )}
-                </motion.div>
-              </TabsContent>
-            </Tabs>
-          </motion.div>
+                <Tabs defaultValue="original" className="space-y-4">
+                  <TabsList className="grid grid-cols-2 w-full">
+                    <TabsTrigger value="original">Original</TabsTrigger>
+                    <TabsTrigger value="processed">Processed</TabsTrigger>
+                  </TabsList>
 
-          {/* Beat Grid */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 }}
-          >
-            <BeatGrid
-              bpm={detectedBPM}
-              onBpmChange={(bpm) => setDetectedBPM(bpm)}
-              duration={duration}
-              currentTime={currentTime}
-              zoomLevel={zoomLevel}
-              onZoomChange={handleZoomChange}
-              onAddCuePoint={handleAddCuePoint}
-              onSetLoopPoints={handleSetLoopPoints}
-            />
-          </motion.div>
-        </div>
+                  <TabsContent value="original">
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ duration: 0.3 }}
+                    >
+                      {originalAudioUrl ? (
+                        <div>
+                          <div ref={waveformRef} className="mb-4" />
+                          <AudioPlayer
+                            audioUrl={originalAudioUrl}
+                            title={uploadedFile?.name || "Original Track"}
+                            isPlaying={isPlaying}
+                            onPlayPause={handlePlayPause}
+                            currentTime={currentTime}
+                            onTimeUpdate={setCurrentTime}
+                            duration={duration}
+                            onDurationChange={setDuration}
+                            showControls={true}
+                          />
+                        </div>
+                      ) : (
+                        <div className="text-gray-400 text-center py-8">
+                          No audio file uploaded
+                        </div>
+                      )}
+                    </motion.div>
+                  </TabsContent>
 
-        {/* Right Column */}
-        <div className="space-y-6">
-          {/* Stem Mixer */}
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: 0.2 }}
-          >
-            <StemMixer
-              stems={stems}
-              onVolumeChange={handleStemVolumeChange}
-              onMuteToggle={handleStemMuteToggle}
-              isLoading={isSeparatingStem}
-              audioContext={audioContextRef.current}
-            />
-          </motion.div>
+                  <TabsContent value="processed">
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ duration: 0.3 }}
+                    >
+                      {processedAudioUrl ? (
+                        <AudioPlayer
+                          audioUrl={processedAudioUrl}
+                          title="Processed Track"
+                          isPlaying={isPlaying}
+                          onPlayPause={handlePlayPause}
+                          currentTime={currentTime}
+                          onTimeUpdate={setCurrentTime}
+                          duration={duration}
+                          onDurationChange={setDuration}
+                          showControls={true}
+                        />
+                      ) : (
+                        <div className="text-gray-400 text-center py-8">
+                          No processed audio yet
+                        </div>
+                      )}
+                    </motion.div>
+                  </TabsContent>
+                </Tabs>
+              </motion.div>
 
-          {/* Audio Controls */}
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: 0.3 }}
-          >
-            <AudioControls
-              settings={audioSettings}
-              onSettingsChange={setAudioSettings}
-              onPreviewEffect={handlePreviewEffect}
-            />
-          </motion.div>
+              {/* Beat Grid */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3 }}
+              >
+                <BeatGrid
+                  bpm={detectedBPM}
+                  onBpmChange={(bpm) => setDetectedBPM(bpm)}
+                  duration={duration}
+                  currentTime={currentTime}
+                  zoomLevel={zoomLevel}
+                  onZoomChange={handleZoomChange}
+                  onAddCuePoint={handleAddCuePoint}
+                  onSetLoopPoints={handleSetLoopPoints}
+                />
+              </motion.div>
+            </div>
 
-          {/* Audio Effects */}
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: 0.4 }}
-          >
-            <AudioEffects
-              audioBuffer={audioBuffer}
-              onEffectChange={() => {}}
-              onTrimAudio={() => {}}
-              onLoopChange={() => {}}
-            />
-          </motion.div>
-        </div>
-      </div>
+            {/* Right Column */}
+            <div className="space-y-6">
+              {/* Track Mixer */}
+              <motion.div
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.2 }}
+              >
+                <AudioTrackMixer
+                  tracks={mixerTracks}
+                  audioContext={audioContextRef.current}
+                  isPlaying={isPlaying}
+                  onPlayPause={handlePlayPause}
+                  onRemoveTrack={handleRemoveTrack}
+                  onUpdateTrack={handleUpdateTrack}
+                />
+              </motion.div>
+
+              {/* Stem Mixer */}
+              <motion.div
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.3 }}
+              >
+                <StemMixer
+                  stems={stems}
+                  onVolumeChange={handleStemVolumeChange}
+                  onMuteToggle={handleStemMuteToggle}
+                  isLoading={isSeparatingStem}
+                  audioContext={audioContextRef.current}
+                />
+              </motion.div>
+            </div>
+          </div>
+        </TabsContent>
+
+        {/* Samples Tab */}
+        <TabsContent value="samples" className="mt-0">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Left Column - Sample Library */}
+            <div className="space-y-6">
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2 }}
+              >
+                <AudioSampleLibrary
+                  audioContext={audioContextRef.current}
+                  onAddSample={handleAddSample}
+                />
+              </motion.div>
+            </div>
+
+            {/* Right Column - Track Mixer */}
+            <div className="space-y-6">
+              <motion.div
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.2 }}
+              >
+                <AudioTrackMixer
+                  tracks={mixerTracks}
+                  audioContext={audioContextRef.current}
+                  isPlaying={isPlaying}
+                  onPlayPause={handlePlayPause}
+                  onRemoveTrack={handleRemoveTrack}
+                  onUpdateTrack={handleUpdateTrack}
+                />
+              </motion.div>
+            </div>
+          </div>
+        </TabsContent>
+
+        {/* Effects Tab */}
+        <TabsContent value="effects" className="mt-0">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Left Column - Audio Preview */}
+            <div className="space-y-6">
+              <motion.div
+                className="bg-[#0C1015] rounded-lg p-6"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2 }}
+              >
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-xl font-semibold text-white">Audio Preview</h2>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={handlePlayPause}
+                      className="w-8 h-8"
+                    >
+                      {isPlaying ? <Pause size={16} /> : <Play size={16} />}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={handleStop}
+                      className="w-8 h-8"
+                    >
+                      <Square size={16} />
+                    </Button>
+                  </div>
+                </div>
+
+                <div>
+                  <div ref={waveformRef} className="mb-4" />
+                  <AudioPlayer
+                    audioUrl={originalAudioUrl || ''}
+                    title={uploadedFile?.name || "No Audio"}
+                    isPlaying={isPlaying}
+                    onPlayPause={handlePlayPause}
+                    currentTime={currentTime}
+                    onTimeUpdate={setCurrentTime}
+                    duration={duration}
+                    onDurationChange={setDuration}
+                    showControls={true}
+                  />
+                </div>
+              </motion.div>
+
+              {/* Audio Controls */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3 }}
+              >
+                <AudioControls
+                  settings={audioSettings}
+                  onSettingsChange={setAudioSettings}
+                  onPreviewEffect={handlePreviewEffect}
+                />
+              </motion.div>
+            </div>
+
+            {/* Right Column - Effects Rack */}
+            <div className="space-y-6">
+              <motion.div
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.2 }}
+              >
+                <AudioEffectsRack
+                  audioContext={audioContextRef.current}
+                  effects={audioEffects}
+                  onEffectsChange={handleEffectsChange}
+                  onPreviewEffect={handlePreviewEffect}
+                />
+              </motion.div>
+
+              {/* Audio Effects */}
+              <motion.div
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.4 }}
+              >
+                <AudioEffects
+                  audioBuffer={audioBuffer}
+                  onEffectChange={() => {}}
+                  onTrimAudio={() => {}}
+                  onLoopChange={() => {}}
+                />
+              </motion.div>
+            </div>
+          </div>
+        </TabsContent>
+      </Tabs>
 
       {/* Generate Button */}
       <motion.div
